@@ -40,7 +40,7 @@ func (c *Crawler) Done() <-chan struct{} {
 	return c.done
 }
 
-// Crawl cralws the directory from basedDir
+// Crawl crawls the directory from basedDir
 // using BFS traversal. Any error, encountered are
 // sent on the c.errChan channel. All path
 // discovered will be send to c.pathChan channel.
