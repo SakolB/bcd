@@ -15,7 +15,6 @@ const (
 	bonusPathSeparator = 8
 	bonusFirstChar     = 16
 	bonusConsecutive   = 12
-	bonusWordMatch     = 4 // bonus when gap contains only word chars (not delimiters)
 )
 
 type ScoredEntry struct {
@@ -24,9 +23,10 @@ type ScoredEntry struct {
 }
 
 type Ranker struct {
-	entries []*entry.PathEntry
-	query   string
-	results []ScoredEntry
+	entries       []*entry.PathEntry
+	query         string
+	previousQuery string
+	results       []ScoredEntry
 }
 
 func NewRanker() *Ranker {
@@ -37,11 +37,36 @@ func NewRanker() *Ranker {
 
 func (r *Ranker) AddEntry(e *entry.PathEntry) {
 	r.entries = append(r.entries, e)
+
+	// Incrementally update results with this new entry
+	if r.query != "" {
+		matched, s := score(r.query, e.AbsPath)
+		if matched {
+			newScored := ScoredEntry{Entry: e, Score: s}
+			r.insertSorted(newScored)
+		}
+	} else {
+		// No query = show all, sorted by distance
+		newScored := ScoredEntry{Entry: e, Score: 0}
+		r.insertSorted(newScored)
+	}
 }
 
 func (r *Ranker) SetQuery(q string) {
+	if q == r.query {
+		return // Query unchanged, skip recomputation
+	}
+
+	r.previousQuery = r.query
 	r.query = q
-	r.computeResults()
+
+	// Detect incremental query (user typed more characters)
+	if r.previousQuery != "" && strings.HasPrefix(q, r.previousQuery) && len(q) > len(r.previousQuery) {
+		r.computeResultsIncremental()
+	} else {
+		// Decremental or completely different query: full recompute
+		r.computeResults()
+	}
 }
 
 func (r *Ranker) Results() []ScoredEntry {
@@ -76,8 +101,42 @@ func (r *Ranker) computeResults() {
 	})
 }
 
-func isDelimiter(r rune) bool {
-	return r == '/' || r == '-' || r == '_' || r == '.' || r == ' '
+func (r *Ranker) computeResultsIncremental() {
+	// Instead of checking all entries, only filter/rescore previous results
+	filtered := r.results[:0] // Reuse slice to avoid allocation
+
+	for _, scored := range r.results {
+		matched, s := score(r.query, scored.Entry.AbsPath)
+		if matched {
+			scored.Score = s
+			filtered = append(filtered, scored)
+		}
+	}
+
+	r.results = filtered
+
+	// Re-sort since scores changed (gaps/bonuses differ)
+	sort.Slice(r.results, func(i, j int) bool {
+		if r.results[i].Score != r.results[j].Score {
+			return r.results[i].Score > r.results[j].Score
+		}
+		return r.results[i].Entry.Distance < r.results[j].Entry.Distance
+	})
+}
+
+func (r *Ranker) insertSorted(newEntry ScoredEntry) {
+	// Binary search for insertion point
+	idx := sort.Search(len(r.results), func(i int) bool {
+		if r.results[i].Score != newEntry.Score {
+			return r.results[i].Score < newEntry.Score // Higher scores first
+		}
+		return r.results[i].Entry.Distance > newEntry.Entry.Distance // Closer distances first
+	})
+
+	// Insert at position idx
+	r.results = append(r.results, ScoredEntry{})
+	copy(r.results[idx+1:], r.results[idx:])
+	r.results[idx] = newEntry
 }
 
 func score(query, target string) (bool, int) {
@@ -103,49 +162,72 @@ func score(query, target string) (bool, int) {
 		return false, 0
 	}
 
-	// Compute score
-	qi = 0
-	totalScore := 0
-	prevMatchIdx := -1
+	// FZF v2 algorithm: Dynamic programming to find optimal match positions
+	qLen := len(queryRunes)
+	tLen := len(targetRunes)
 
-	for ti := 0; ti < len(targetRunes) && qi < len(queryRunes); ti++ {
-		if targetRunes[ti] == queryRunes[qi] {
-			totalScore += scoreMatch
+	const negInf = -100000
 
-			if ti == 0 {
-				totalScore += bonusFirstChar
-			}
-
-			if ti > 0 && originalRunes[ti-1] == '/' {
-				totalScore += bonusPathSeparator
-			}
-
-			if prevMatchIdx >= 0 {
-				gap := ti - prevMatchIdx - 1
-				if gap == 0 {
-					totalScore += bonusConsecutive
-				} else {
-					totalScore += scoreGapStart
-
-					// Check if gap contains only word characters (no delimiters)
-					// This rewards "config" over "c-f-g"
-					hasDelimiter := false
-					for gi := prevMatchIdx + 1; gi < ti; gi++ {
-						if isDelimiter(originalRunes[gi]) {
-							hasDelimiter = true
-							break
-						}
-					}
-					if !hasDelimiter {
-						totalScore += bonusWordMatch
-					}
-				}
-			}
-
-			prevMatchIdx = ti
-			qi++
+	// M[i][j] = best score when query[i-1] matches at target[j-1]
+	// H[i][j] = best overall score for query[0..i-1] in target[0..j-1]
+	M := make([][]int, qLen+1)
+	H := make([][]int, qLen+1)
+	for i := range M {
+		M[i] = make([]int, tLen+1)
+		H[i] = make([]int, tLen+1)
+		for j := range M[i] {
+			M[i][j] = negInf
+			H[i][j] = negInf
 		}
 	}
 
-	return true, totalScore
+	// Base case: matching 0 query chars = 0 score
+	for j := 0; j <= tLen; j++ {
+		H[0][j] = 0
+	}
+
+	// Fill DP table
+	for i := 1; i <= qLen; i++ {
+		for j := 1; j <= tLen; j++ {
+			// Try to match query[i-1] with target[j-1]
+			if queryRunes[i-1] == targetRunes[j-1] {
+				bonus := scoreMatch
+
+				// Position-based bonuses
+				if j == 1 {
+					bonus += bonusFirstChar
+				} else if originalRunes[j-2] == '/' {
+					bonus += bonusPathSeparator
+				}
+
+				if i == 1 {
+					// First query character
+					M[i][j] = bonus
+				} else {
+					// Option 1: consecutive match (previous query char matched at j-1)
+					consecutiveScore := negInf
+					if M[i-1][j-1] > negInf {
+						consecutiveScore = M[i-1][j-1] + bonus + bonusConsecutive
+					}
+
+					// Option 2: gap (previous query char matched somewhere before j-1)
+					gapScore := H[i-1][j-1] + bonus + scoreGapStart
+
+					M[i][j] = max(consecutiveScore, gapScore)
+				}
+			}
+
+			// H[i][j] = max(skip target[j-1], match at target[j-1])
+			H[i][j] = max(H[i][j-1]+scoreGapExtension, M[i][j])
+		}
+	}
+
+	return true, H[qLen][tLen]
+}
+
+func max(a, b int) int {
+	if a > b {
+		return a
+	}
+	return b
 }
