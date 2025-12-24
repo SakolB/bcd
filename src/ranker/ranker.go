@@ -37,19 +37,8 @@ func NewRanker() *Ranker {
 
 func (r *Ranker) AddEntry(e *entry.PathEntry) {
 	r.entries = append(r.entries, e)
-
-	// Incrementally update results with this new entry
-	if r.query != "" {
-		matched, s := score(r.query, e.AbsPath)
-		if matched {
-			newScored := ScoredEntry{Entry: e, Score: s}
-			r.insertSorted(newScored)
-		}
-	} else {
-		// No query = show all, sorted by distance
-		newScored := ScoredEntry{Entry: e, Score: 0}
-		r.insertSorted(newScored)
-	}
+	// Don't score here - too expensive with FZF v2 DP algorithm
+	// Results get recomputed when query changes (debounced)
 }
 
 func (r *Ranker) SetQuery(q string) {
@@ -122,21 +111,6 @@ func (r *Ranker) computeResultsIncremental() {
 		}
 		return r.results[i].Entry.Distance < r.results[j].Entry.Distance
 	})
-}
-
-func (r *Ranker) insertSorted(newEntry ScoredEntry) {
-	// Binary search for insertion point
-	idx := sort.Search(len(r.results), func(i int) bool {
-		if r.results[i].Score != newEntry.Score {
-			return r.results[i].Score < newEntry.Score // Higher scores first
-		}
-		return r.results[i].Entry.Distance > newEntry.Entry.Distance // Closer distances first
-	})
-
-	// Insert at position idx
-	r.results = append(r.results, ScoredEntry{})
-	copy(r.results[idx+1:], r.results[idx:])
-	r.results[idx] = newEntry
 }
 
 func score(query, target string) (bool, int) {
