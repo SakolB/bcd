@@ -23,6 +23,15 @@ type QueryUpdateMsg struct {
 	query string
 }
 
+type RankerCmd struct {
+	AddEntry *entry.PathEntry
+	SetQuery *string
+}
+
+type ResultsUpdateMsg struct {
+	results []ranker.ScoredEntry
+}
+
 type Model struct {
 	textInput      textinput.Model
 	ranker         *ranker.Ranker
@@ -36,6 +45,9 @@ type Model struct {
 	pendingQuery string
 	activeQuery  string
 
+	rankerCmdChan    chan RankerCmd
+	rankerResultChan chan ResultsUpdateMsg
+
 	mu sync.Mutex
 }
 
@@ -46,15 +58,20 @@ func InitModel(baseDir string) Model {
 	ti.CharLimit = 256
 	ti.Width = 100
 
+	cmdChan := make(chan RankerCmd, 1000)
+	resultChan := make(chan ResultsUpdateMsg, 1)
+
 	return Model{
-		textInput:      ti,
-		ranker:         ranker.NewRanker(),
-		results:        []ranker.ScoredEntry{},
-		cursor:         0,
-		viewportOffset: 0,
-		baseDir:        baseDir,
-		pendingQuery:   "",
-		activeQuery:    "",
+		textInput:        ti,
+		ranker:           ranker.NewRanker(),
+		results:          []ranker.ScoredEntry{},
+		cursor:           0,
+		viewportOffset:   0,
+		baseDir:          baseDir,
+		pendingQuery:     "",
+		activeQuery:      "",
+		rankerCmdChan:    cmdChan,
+		rankerResultChan: resultChan,
 	}
 }
 
@@ -62,6 +79,28 @@ func debounceQueryCmd(query string, delay time.Duration) tea.Cmd {
 	return tea.Tick(delay, func(t time.Time) tea.Msg {
 		return QueryUpdateMsg{query: query}
 	})
+}
+
+func startRankerWorker(r *ranker.Ranker, cmdChan chan RankerCmd, resultChan chan ResultsUpdateMsg) {
+	go func() {
+		for cmd := range cmdChan {
+			if cmd.AddEntry != nil {
+				// Just add entry, don't send results yet
+				r.AddEntry(cmd.AddEntry)
+			}
+			if cmd.SetQuery != nil {
+				// Score everything, then send ONE complete result
+				r.SetQuery(*cmd.SetQuery)
+				resultChan <- ResultsUpdateMsg{results: r.Results()}
+			}
+		}
+	}()
+}
+
+func waitForRankerResult(resultChan chan ResultsUpdateMsg) tea.Cmd {
+	return func() tea.Msg {
+		return <-resultChan
+	}
 }
 
 func (m Model) Selected() string {
@@ -75,7 +114,14 @@ func (m *Model) AddEntry(e *entry.PathEntry) {
 }
 
 func (m Model) Init() tea.Cmd {
-	return textinput.Blink
+	// Start the ranker worker goroutine
+	startRankerWorker(m.ranker, m.rankerCmdChan, m.rankerResultChan)
+
+	// Start listening for results and blinking cursor
+	return tea.Batch(
+		textinput.Blink,
+		waitForRankerResult(m.rankerResultChan),
+	)
 }
 
 func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
@@ -114,33 +160,42 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 
 	case EntryMsg:
-		m.mu.Lock()
-		m.ranker.AddEntry(msg)
-		m.results = m.ranker.Results()
-		m.mu.Unlock()
-		m.clampCursor()
+		// Send entry to ranker worker (non-blocking, just appends)
+		select {
+		case m.rankerCmdChan <- RankerCmd{AddEntry: msg}:
+		default:
+			// Channel full, skip this entry
+		}
 		return m, nil
 
 	case CrawlDoneMsg:
-		m.mu.Lock()
-		m.ranker.SetQuery(m.textInput.Value())
-		m.results = m.ranker.Results()
-		m.mu.Unlock()
-		m.clampCursor()
+		// Trigger a final query to score all collected entries
+		query := m.textInput.Value()
+		m.rankerCmdChan <- RankerCmd{SetQuery: &query}
 		return m, nil
 
 	case QueryUpdateMsg:
 		// Only update if this query is still pending (user hasn't typed more)
 		if msg.query == m.textInput.Value() {
-			m.mu.Lock()
-			m.ranker.SetQuery(msg.query)
-			m.results = m.ranker.Results()
+			query := msg.query
+			// Send query to ranker worker (non-blocking)
+			// Worker will score and send back complete results
+			select {
+			case m.rankerCmdChan <- RankerCmd{SetQuery: &query}:
+			default:
+			}
 			m.activeQuery = msg.query
-			m.mu.Unlock()
 			m.cursor = 0
 			m.viewportOffset = 0
 		}
 		return m, nil
+
+	case ResultsUpdateMsg:
+		// Received complete results from ranker worker
+		m.results = msg.results
+		m.clampCursor()
+		// Keep listening for more results
+		return m, waitForRankerResult(m.rankerResultChan)
 	}
 
 	prevValue := m.textInput.Value()
