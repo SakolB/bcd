@@ -49,7 +49,9 @@ func (c *Crawler) Crawl(baseDir string) {
 	defer close(c.errChan)
 	absDir, err := filepath.Abs(baseDir)
 	if err != nil {
-		c.errChan <- err
+		if !c.ignoreErrors {
+			c.errChan <- err
+		}
 		return
 	}
 	queue := make([]string, 0)
@@ -62,7 +64,9 @@ func (c *Crawler) Crawl(baseDir string) {
 		queue = queue[1:]
 		neighbors, err := c.getNeighbor(current)
 		if err != nil {
-			c.errChan <- err
+			if !c.ignoreErrors {
+				c.errChan <- err
+			}
 		}
 		for _, neighbor := range neighbors {
 			if !visited[neighbor] {
