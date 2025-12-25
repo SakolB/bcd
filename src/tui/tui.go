@@ -24,8 +24,8 @@ type QueryUpdateMsg struct {
 }
 
 type RankerCmd struct {
-	AddEntry *entry.PathEntry
-	SetQuery *string
+	AddEntryBatch []*entry.PathEntry
+	SetQuery      *string
 }
 
 type ResultsUpdateMsg struct {
@@ -47,6 +47,8 @@ type Model struct {
 
 	rankerCmdChan    chan RankerCmd
 	rankerResultChan chan ResultsUpdateMsg
+
+	entryBatch []*entry.PathEntry
 
 	mu sync.Mutex
 }
@@ -72,6 +74,7 @@ func InitModel(baseDir string) Model {
 		activeQuery:      "",
 		rankerCmdChan:    cmdChan,
 		rankerResultChan: resultChan,
+		entryBatch:       make([]*entry.PathEntry, 0, 100),
 	}
 }
 
@@ -84,17 +87,24 @@ func debounceQueryCmd(query string, delay time.Duration) tea.Cmd {
 func startRankerWorker(r *ranker.Ranker, cmdChan chan RankerCmd, resultChan chan ResultsUpdateMsg) {
 	go func() {
 		for cmd := range cmdChan {
-			if cmd.AddEntry != nil {
-				// Just add entry, don't send results yet
-				r.AddEntry(cmd.AddEntry)
+			if cmd.AddEntryBatch != nil {
+				// Score batch and insert into heap, then send updated results
+				r.AddEntryBatch(cmd.AddEntryBatch)
+				resultChan <- ResultsUpdateMsg{results: r.Results()}
 			}
 			if cmd.SetQuery != nil {
-				// Score everything, then send ONE complete result
+				// Rescore everything with new query, then send complete results
 				r.SetQuery(*cmd.SetQuery)
 				resultChan <- ResultsUpdateMsg{results: r.Results()}
 			}
 		}
 	}()
+}
+
+func batchFlushCmd() tea.Cmd {
+	return tea.Tick(50*time.Millisecond, func(t time.Time) tea.Msg {
+		return struct{ flush bool }{flush: true}
+	})
 }
 
 func waitForRankerResult(resultChan chan ResultsUpdateMsg) tea.Cmd {
@@ -117,10 +127,11 @@ func (m Model) Init() tea.Cmd {
 	// Start the ranker worker goroutine
 	startRankerWorker(m.ranker, m.rankerCmdChan, m.rankerResultChan)
 
-	// Start listening for results and blinking cursor
+	// Start listening for results, blinking cursor, and batch flushing
 	return tea.Batch(
 		textinput.Blink,
 		waitForRankerResult(m.rankerResultChan),
+		batchFlushCmd(),
 	)
 }
 
@@ -160,11 +171,17 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 
 	case EntryMsg:
-		// Send entry to ranker worker (non-blocking, just appends)
-		select {
-		case m.rankerCmdChan <- RankerCmd{AddEntry: msg}:
-		default:
-			// Channel full, skip this entry
+		// Batch entries instead of sending one at a time
+		m.entryBatch = append(m.entryBatch, msg)
+		// If batch is large enough, flush immediately
+		if len(m.entryBatch) >= 100 {
+			batch := m.entryBatch
+			m.entryBatch = make([]*entry.PathEntry, 0, 100)
+			select {
+			case m.rankerCmdChan <- RankerCmd{AddEntryBatch: batch}:
+			default:
+				// Channel full, skip this batch
+			}
 		}
 		return m, nil
 
@@ -196,6 +213,21 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.clampCursor()
 		// Keep listening for more results
 		return m, waitForRankerResult(m.rankerResultChan)
+
+	default:
+		// Check if this is a batch flush message
+		if flushMsg, ok := msg.(struct{ flush bool }); ok && flushMsg.flush {
+			// Flush pending batch
+			if len(m.entryBatch) > 0 {
+				batch := m.entryBatch
+				m.entryBatch = make([]*entry.PathEntry, 0, 100)
+				select {
+				case m.rankerCmdChan <- RankerCmd{AddEntryBatch: batch}:
+				default:
+				}
+			}
+			return m, batchFlushCmd()
+		}
 	}
 
 	prevValue := m.textInput.Value()
