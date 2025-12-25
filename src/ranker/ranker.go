@@ -101,16 +101,15 @@ func (r *Ranker) SetQuery(q string) {
 }
 
 func (r *Ranker) rebuildHeap() {
-	// Clear existing heap
-	r.resultsHeap = &ResultsHeap{}
-
 	// Detect incremental query for optimization
 	if r.previousQuery != "" && strings.HasPrefix(r.query, r.previousQuery) && len(r.query) > len(r.previousQuery) {
-		// Incremental: only score entries that matched previous query
-		// (would need to track which entries matched - for now just do full rescore)
-		r.scoreAllEntries()
+		// Incremental: only rescore entries that matched previous query
+		// The current heap already contains only matched entries!
+		r.scoreMatchedEntries()
 	} else {
-		// Full rescore
+		// Full rescore: clear heap and score all entries
+		r.resultsHeap = &ResultsHeap{}
+		heap.Init(r.resultsHeap)
 		r.scoreAllEntries()
 	}
 }
@@ -126,6 +125,27 @@ func (r *Ranker) scoreAllEntries() {
 
 	// Score all entries and push to heap
 	for _, e := range r.entries {
+		matched, s := score(r.query, e.AbsPath)
+		if matched {
+			heap.Push(r.resultsHeap, ScoredEntry{Entry: e, Score: s})
+		}
+	}
+}
+
+func (r *Ranker) scoreMatchedEntries() {
+	// Extract entries from current heap (they all matched previous query)
+	oldHeap := *r.resultsHeap
+	matchedEntries := make([]*entry.PathEntry, len(oldHeap))
+	for i, scored := range oldHeap {
+		matchedEntries[i] = scored.Entry
+	}
+
+	// Clear heap and rebuild with new scores
+	r.resultsHeap = &ResultsHeap{}
+	heap.Init(r.resultsHeap)
+
+	// Only rescore entries that matched before
+	for _, e := range matchedEntries {
 		matched, s := score(r.query, e.AbsPath)
 		if matched {
 			heap.Push(r.resultsHeap, ScoredEntry{Entry: e, Score: s})
