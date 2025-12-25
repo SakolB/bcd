@@ -49,8 +49,7 @@ func main() {
 		os.Exit(1)
 	}
 
-	if m, ok := finalModel.(*tui.Model); ok {
-		fmt.Println(ok)
+	if m, ok := finalModel.(tui.Model); ok {
 		if selected := m.Selected(); selected != "" {
 			fmt.Println(selected)
 		}
