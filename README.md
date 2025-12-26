@@ -35,11 +35,13 @@ Dependencies like Bubble Tea are automatically downloaded during build - you don
 
 This will:
 1. Check for Go installation
-2. Build the `bcd` binary (automatically downloads dependencies)
+2. Build the `bcd-bin` binary (automatically downloads dependencies)
 3. Install it to `~/.local/bin/` (or use `--system` flag for `/usr/local/bin`)
 4. Add `~/.local/bin` to your PATH if needed
-5. Add shell integration function to your shell config
+5. Add shell integration function `bcd()` to your shell config
 6. Prompt you to reload your shell
+
+**Note:** The binary is named `bcd-bin`, but you use the shell function `bcd` to invoke it.
 
 After installation, run:
 ```bash
@@ -61,7 +63,7 @@ Installs to `/usr/local/bin` (requires sudo).
 ```
 
 This will:
-1. Remove the `bcd` binary from `~/.local/bin` or `/usr/local/bin`
+1. Remove the `bcd-bin` binary from `~/.local/bin` or `/usr/local/bin`
 2. Remove shell integration from your shell config files
 3. Create backup files of all modified configs (`.bcd_backup`)
 
@@ -74,13 +76,13 @@ Use `--force` to skip the confirmation prompt:
 
 1. Build the binary:
 ```bash
-go build -o bcd ./cmd/bcd
+go build -o bcd-bin ./cmd/bcd
 ```
 
 2. Move it somewhere in your PATH:
 ```bash
 mkdir -p ~/.local/bin
-mv bcd ~/.local/bin/
+mv bcd-bin ~/.local/bin/
 ```
 
 3. Add `~/.local/bin` to your PATH (if not already):
@@ -97,7 +99,7 @@ bcd() {
   local selected_path
 
   selected_path="$(
-    command bcd "$@" 1>/dev/tty 2>&1 \
+    command bcd-bin "$@" 2>&1 1>/dev/tty \
       | tr -d '\r' \
       | sed -E 's/\x1b\[[0-9;?]*[ -/]*[@-~]//g' \
       | grep -oE 'BCD_SELECTED_PATH:[^[:cntrl:]]+' \
@@ -122,7 +124,7 @@ bcd() {
   local selected_path
 
   selected_path="$(
-    command bcd "$@" 1>/dev/tty 2>&1 \
+    command bcd-bin "$@" 2>&1 1>/dev/tty \
       | tr -d '\r' \
       | sed -E 's/\x1b\[[0-9;?]*[ -/]*[@-~]//g' \
       | grep -oE 'BCD_SELECTED_PATH:[^[:cntrl:]]+' \
@@ -145,7 +147,7 @@ bcd() {
 # bcd shell integration
 function bcd
     set selected_path (
-        command bcd $argv 1>/dev/tty 2>&1 \
+        command bcd-bin $argv 2>&1 1>/dev/tty \
             | tr -d '\r' \
             | sed -E 's/\x1b\[[0-9;?]*[ -/]*[@-~]//g' \
             | grep -oE 'BCD_SELECTED_PATH:[^[:cntrl:]]+' \
@@ -178,6 +180,8 @@ bcd
 bcd /path/to/start
 ```
 
+**Note:** You invoke `bcd` (the shell function), which internally calls `bcd-bin` (the binary).
+
 ### Keyboard Shortcuts
 
 - `↑/↓` or `Ctrl+p/n`: Navigate results
@@ -198,14 +202,15 @@ bcd /path/to/start
 
 ### Shell Integration
 
-The shell function wrapper enables `cd` functionality through a clever I/O redirection:
+The shell function `bcd()` wraps the `bcd-bin` binary and enables `cd` functionality through clever I/O redirection:
 
-1. **TUI renders to terminal**: `1>/dev/tty` redirects stdout to the terminal so you can see and interact with the TUI
-2. **Selection captured via stderr**: The binary outputs `BCD_SELECTED_PATH:/path/to/dir` to stderr
-3. **Shell extracts path**: `2>&1` redirects stderr to the pipe, where `sed` extracts the path
-4. **cd into directory**: The shell function uses `builtin cd` to change directories
+1. **Redirection order**: `2>&1 1>/dev/tty` - First redirects stderr to stdout (captured by command substitution), then redirects stdout to `/dev/tty` (terminal)
+2. **TUI renders to terminal**: stdout goes to `/dev/tty` so you can see and interact with the TUI
+3. **Selection captured via stderr**: The `bcd-bin` binary outputs `BCD_SELECTED_PATH:/path/to/dir` to stderr, which gets captured
+4. **Shell extracts path**: The captured output is piped through `tr`, `sed`, and `grep` to extract the clean path
+5. **cd into directory**: The shell function uses `builtin cd` to change directories
 
-This approach allows the interactive TUI to display normally while the selected path is captured for shell use.
+This approach allows the interactive TUI to display normally while the selected path is captured for shell use. The separation of the binary (`bcd-bin`) and shell function (`bcd`) prevents naming conflicts and makes the integration cleaner.
 
 ## Project Structure
 
@@ -231,7 +236,15 @@ bcd/
 
 ### `bcd: command not found`
 
-Make sure `~/.local/bin` is in your PATH and you've reloaded your shell:
+This means the shell function isn't loaded. Make sure you've:
+
+1. Added the shell integration to your shell config
+2. Reloaded your shell:
+   ```bash
+   source ~/.bashrc  # or source ~/.zshrc
+   ```
+
+If `bcd-bin` itself is missing, ensure `~/.local/bin` is in your PATH:
 
 ```bash
 # Add to your shell config if not present
@@ -267,7 +280,7 @@ The TUI requires a terminal that supports ANSI escape codes. Most modern termina
 ### Building from Source
 
 ```bash
-go build -o bcd ./cmd/bcd
+go build -o bcd-bin ./cmd/bcd
 ```
 
 ### Running Tests
