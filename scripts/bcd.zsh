@@ -5,7 +5,7 @@ bcd() {
   local selected_path
 
   selected_path="$(
-    command bcd "$@" 1>/dev/tty 2>&1 \
+    command bcd-bin "$@" 1>/dev/tty 2>&1 \
       | tr -d '\r' \
       | sed -E 's/\x1b\[[0-9;?]*[ -/]*[@-~]//g' \
       | grep -oE 'BCD_SELECTED_PATH:[^[:cntrl:]]+' \

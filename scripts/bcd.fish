@@ -3,7 +3,7 @@
 
 function bcd
     set selected_path (
-        command bcd $argv 1>/dev/tty 2>&1 \
+        command bcd-bin $argv 1>/dev/tty 2>&1 \
             | tr -d '\r' \
             | sed -E 's/\x1b\[[0-9;?]*[ -/]*[@-~]//g' \
             | grep -oE 'BCD_SELECTED_PATH:[^[:cntrl:]]+' \

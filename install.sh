@@ -57,8 +57,8 @@ check_go() {
 
 # Build the binary
 build() {
-    info "Building bcd..."
-    if ! go build -o bcd ./cmd/bcd; then
+    info "Building bcd-bin..."
+    if ! go build -o bcd-bin ./cmd/bcd; then
         error "Build failed"
     fi
     info "Build successful"
@@ -73,19 +73,19 @@ install_binary() {
         install_dir="/usr/local/bin"
         if [[ ! -w "$install_dir" ]]; then
             info "Installing to $install_dir (requires sudo)"
-            sudo mv bcd "$install_dir/bcd"
-            sudo chmod +x "$install_dir/bcd"
+            sudo mv bcd-bin "$install_dir/bcd-bin"
+            sudo chmod +x "$install_dir/bcd-bin"
         else
-            mv bcd "$install_dir/bcd"
-            chmod +x "$install_dir/bcd"
+            mv bcd-bin "$install_dir/bcd-bin"
+            chmod +x "$install_dir/bcd-bin"
         fi
     else
         mkdir -p "$install_dir"
-        mv bcd "$install_dir/bcd"
-        chmod +x "$install_dir/bcd"
+        mv bcd-bin "$install_dir/bcd-bin"
+        chmod +x "$install_dir/bcd-bin"
     fi
 
-    info "Installed bcd to $install_dir"
+    info "Installed bcd-bin to $install_dir"
 }
 
 # Setup shell integration

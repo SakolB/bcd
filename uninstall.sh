@@ -28,25 +28,25 @@ remove_binary() {
     local binary_removed=false
 
     # Check ~/.local/bin
-    if [[ -f "$HOME/.local/bin/bcd" ]]; then
-        info "Removing bcd from ~/.local/bin"
-        rm -f "$HOME/.local/bin/bcd"
+    if [[ -f "$HOME/.local/bin/bcd-bin" ]]; then
+        info "Removing bcd-bin from ~/.local/bin"
+        rm -f "$HOME/.local/bin/bcd-bin"
         binary_removed=true
     fi
 
     # Check /usr/local/bin
-    if [[ -f "/usr/local/bin/bcd" ]]; then
-        info "Removing bcd from /usr/local/bin (requires sudo)"
+    if [[ -f "/usr/local/bin/bcd-bin" ]]; then
+        info "Removing bcd-bin from /usr/local/bin (requires sudo)"
         if [[ -w "/usr/local/bin" ]]; then
-            rm -f "/usr/local/bin/bcd"
+            rm -f "/usr/local/bin/bcd-bin"
         else
-            sudo rm -f "/usr/local/bin/bcd"
+            sudo rm -f "/usr/local/bin/bcd-bin"
         fi
         binary_removed=true
     fi
 
     if [[ "$binary_removed" = false ]]; then
-        warn "bcd binary not found in ~/.local/bin or /usr/local/bin"
+        warn "bcd-bin binary not found in ~/.local/bin or /usr/local/bin"
     else
         info "Binary removed successfully"
     fi
