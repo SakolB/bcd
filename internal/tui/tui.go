@@ -14,7 +14,7 @@ import (
 	"github.com/sakolb/bcd/internal/ranker"
 )
 
-const maxVisibleResults = 50
+const maxVisibleResults = 25
 
 type EntryMsg *entry.PathEntry
 
