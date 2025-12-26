@@ -4,7 +4,7 @@ import (
 	"container/heap"
 	"strings"
 
-	"github.com/sakolb/bcd/src/entry"
+	"github.com/sakolb/bcd/internal/entry"
 )
 
 const (

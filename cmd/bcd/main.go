@@ -6,9 +6,9 @@ import (
 	"path/filepath"
 
 	tea "github.com/charmbracelet/bubbletea"
-	"github.com/sakolb/bcd/src/crawler"
-	"github.com/sakolb/bcd/src/entry"
-	"github.com/sakolb/bcd/src/tui"
+	"github.com/sakolb/bcd/internal/crawler"
+	"github.com/sakolb/bcd/internal/entry"
+	"github.com/sakolb/bcd/internal/tui"
 )
 
 func main() {
@@ -27,7 +27,7 @@ func main() {
 
 	model := tui.InitModel(baseDir)
 
-	p := tea.NewProgram(&model, tea.WithAltScreen())
+	p := tea.NewProgram(model, tea.WithAltScreen())
 
 	c := crawler.NewCrawler()
 	go func() {
@@ -51,7 +51,7 @@ func main() {
 
 	if m, ok := finalModel.(tui.Model); ok {
 		if selected := m.Selected(); selected != "" {
-			fmt.Println(selected)
+			fmt.Fprintf(os.Stderr, "BCD_SELECTED_PATH:%s\n", selected)
 		}
 	}
 }

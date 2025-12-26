@@ -3,7 +3,7 @@ package ranker
 import (
 	"testing"
 
-	"github.com/sakolb/bcd/src/entry"
+	"github.com/sakolb/bcd/internal/entry"
 )
 
 func TestScoreSubsequenceMatch(t *testing.T) {

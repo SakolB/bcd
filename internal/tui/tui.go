@@ -2,6 +2,7 @@ package tui
 
 import (
 	"fmt"
+	"path/filepath"
 	"strings"
 	"sync"
 	"time"
@@ -9,8 +10,8 @@ import (
 	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
-	"github.com/sakolb/bcd/src/entry"
-	"github.com/sakolb/bcd/src/ranker"
+	"github.com/sakolb/bcd/internal/entry"
+	"github.com/sakolb/bcd/internal/ranker"
 )
 
 const maxVisibleResults = 50
@@ -127,10 +128,10 @@ func (m Model) Init() tea.Cmd {
 	// Start the ranker worker goroutine
 	startRankerWorker(m.ranker, m.rankerCmdChan, m.rankerResultChan)
 
-	// Start listening for results, blinking cursor, and batch flushing
+	// Start blinking cursor and batch flushing
+	// Don't wait for results yet - we'll start listening when we send the first command
 	return tea.Batch(
 		textinput.Blink,
-		waitForRankerResult(m.rankerResultChan),
 		batchFlushCmd(),
 	)
 }
@@ -148,6 +149,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case "enter":
 			if len(m.results) > 0 && m.cursor < len(m.results) {
 				m.selected = m.results[m.cursor].Entry.AbsPath
+				if m.results[m.cursor].Entry.FType == entry.FileTypeFile {
+					m.selected = filepath.Dir(m.results[m.cursor].Entry.AbsPath)
+				}
 			}
 			m.quitting = true
 			return m, tea.Quit
@@ -179,6 +183,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.entryBatch = make([]*entry.PathEntry, 0, 100)
 			select {
 			case m.rankerCmdChan <- RankerCmd{AddEntryBatch: batch}:
+				// Sent batch, wait for results
+				return m, waitForRankerResult(m.rankerResultChan)
 			default:
 				// Channel full, skip this batch
 			}
@@ -199,6 +205,11 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			// Worker will score and send back complete results
 			select {
 			case m.rankerCmdChan <- RankerCmd{SetQuery: &query}:
+				// Sent query, wait for results
+				m.activeQuery = msg.query
+				m.cursor = 0
+				m.viewportOffset = 0
+				return m, waitForRankerResult(m.rankerResultChan)
 			default:
 			}
 			m.activeQuery = msg.query
@@ -223,6 +234,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.entryBatch = make([]*entry.PathEntry, 0, 100)
 				select {
 				case m.rankerCmdChan <- RankerCmd{AddEntryBatch: batch}:
+					// Sent batch, wait for results
+					return m, tea.Batch(batchFlushCmd(), waitForRankerResult(m.rankerResultChan))
 				default:
 				}
 			}
