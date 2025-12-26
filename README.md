@@ -11,6 +11,13 @@ A fuzzy directory navigator for your terminal. Search and jump to any directory 
 - **Interactive TUI**: Full-screen terminal interface with real-time fuzzy search
 - **Shell Integration**: Seamlessly cd into selected directories
 
+## Built With
+
+- **[Bubble Tea](https://github.com/charmbracelet/bubbletea)** - Terminal UI framework for building interactive applications
+- **[Bubbles](https://github.com/charmbracelet/bubbles)** - TUI components for Bubble Tea (text input, viewports, etc.)
+- **[Lipgloss](https://github.com/charmbracelet/lipgloss)** - Style definitions for terminal rendering
+- **FZF v2 Algorithm** - Fuzzy matching scoring algorithm
+
 ## Installation
 
 ### Requirements
