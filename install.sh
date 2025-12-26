@@ -145,7 +145,7 @@ setup_bash() {
     if [ "$needs_source" = true ]; then
         echo ""
         info "Bash integration added!"
-        echo "  Run: source ~/.bashrc"
+        echo "  Run: source ~/.bashrc to start using bcd"
     fi
 }
 
@@ -183,7 +183,7 @@ setup_zsh() {
     if [ "$needs_source" = true ]; then
         echo ""
         info "Zsh integration added!"
-        echo "  Run: source ~/.zshrc"
+        echo "  Run: source ~/.zshrc to start using bcd"
     fi
 }
 
