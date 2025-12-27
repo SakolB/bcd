@@ -27,7 +27,24 @@ func main() {
 
 	model := tui.InitModel(baseDir)
 
-	p := tea.NewProgram(model, tea.WithAltScreen())
+	// Check if stdout is redirected (e.g., in shell function)
+	// If so, use /dev/tty for both input and output to receive resize signals
+	var p *tea.Program
+	fileInfo, _ := os.Stdout.Stat()
+	if (fileInfo.Mode() & os.ModeCharDevice) == 0 {
+		// stdout is redirected, use /dev/tty for TUI to receive signals
+		tty, err := os.OpenFile("/dev/tty", os.O_RDWR, 0)
+		if err == nil {
+			defer tty.Close()
+			p = tea.NewProgram(model, tea.WithInput(tty), tea.WithOutput(tty), tea.WithAltScreen())
+		} else {
+			// Fallback if /dev/tty unavailable
+			p = tea.NewProgram(model, tea.WithAltScreen())
+		}
+	} else {
+		// stdout is a terminal, use normally
+		p = tea.NewProgram(model, tea.WithAltScreen())
+	}
 
 	c := crawler.NewCrawler()
 	go func() {

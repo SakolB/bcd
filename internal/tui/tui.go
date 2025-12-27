@@ -14,7 +14,10 @@ import (
 	"github.com/sakolb/bcd/internal/ranker"
 )
 
-const maxVisibleResults = 25
+const (
+	verticalMargin   = 20
+	horizontalMargin = 5
+)
 
 type EntryMsg *entry.PathEntry
 
@@ -52,6 +55,11 @@ type Model struct {
 	entryBatch []*entry.PathEntry
 
 	mu sync.Mutex
+
+	windowWidth      int
+	windowHeight     int
+	maxVisibleResult int
+	safeWidth        int
 }
 
 func InitModel(baseDir string) Model {
@@ -59,7 +67,7 @@ func InitModel(baseDir string) Model {
 	ti.Placeholder = "Search..."
 	ti.Focus()
 	ti.CharLimit = 256
-	ti.Width = 100
+	ti.Width = 60
 
 	cmdChan := make(chan RankerCmd, 1000)
 	resultChan := make(chan ResultsUpdateMsg, 1)
@@ -167,8 +175,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case "down", "ctrl+n":
 			if m.cursor < len(m.results)-1 {
 				m.cursor++
-				if m.cursor >= m.viewportOffset+maxVisibleResults {
-					m.viewportOffset = m.cursor - maxVisibleResults + 1
+				if m.cursor >= m.viewportOffset+m.maxVisibleResult {
+					m.viewportOffset = m.cursor - (m.maxVisibleResult) + 1
 				}
 			}
 			return m, nil
@@ -225,6 +233,19 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// Keep listening for more results
 		return m, waitForRankerResult(m.rankerResultChan)
 
+	case tea.WindowSizeMsg:
+		m.windowHeight = msg.Height
+		m.windowWidth = msg.Width
+		m.maxVisibleResult = m.windowHeight - verticalMargin
+		m.safeWidth = m.windowWidth - horizontalMargin
+		m.textInput.Width = m.safeWidth
+		if m.safeWidth < 10 || m.maxVisibleResult <= 0 {
+			m.quitting = true
+			m.selected = ""
+			return m, tea.Quit
+		}
+		return m, nil
+
 	default:
 		// Check if this is a batch flush message
 		if flushMsg, ok := msg.(struct{ flush bool }); ok && flushMsg.flush {
@@ -277,9 +298,9 @@ func (m Model) View() string {
 
 	total := len(m.results)
 	b.WriteString(fmt.Sprintf("	%d results\n", total))
-	b.WriteString("	-------------------------------------------\n")
+	b.WriteString(strings.Repeat("-", m.safeWidth) + "\n")
 
-	end := m.viewportOffset + maxVisibleResults
+	end := m.viewportOffset + m.maxVisibleResult
 	if end > len(m.results) {
 		end = len(m.results)
 	}
@@ -291,10 +312,9 @@ func (m Model) View() string {
 		cursor := "  "
 		displayPath := res.Entry.AbsPath
 
-		if len(displayPath) > 100 {
-			displayPath = "..." + displayPath[len(displayPath)-97:]
+		if len(displayPath) > m.safeWidth {
+			displayPath = "..." + displayPath[len(displayPath)-m.safeWidth+3:]
 		}
-
 		line := displayPath
 		if i+m.viewportOffset == m.cursor {
 			cursor = "> "
@@ -304,8 +324,8 @@ func (m Model) View() string {
 		b.WriteString(fmt.Sprintf("%s%s\n", cursor, line))
 	}
 
-	if len(m.results) > maxVisibleResults {
-		b.WriteString(fmt.Sprintf("\n	... and %d more\n", len(m.results)-maxVisibleResults))
+	if len(m.results) > m.maxVisibleResult {
+		b.WriteString(fmt.Sprintf("\n	... and %d more\n", len(m.results)-m.maxVisibleResult))
 	}
 
 	b.WriteString("\n, ↑/↓: navigate • enter: select • esc: quit\n")
