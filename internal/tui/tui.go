@@ -244,7 +244,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.selected = ""
 			return m, tea.Quit
 		}
-		return m, nil
+		return m, tea.ClearScreen
 
 	default:
 		// Check if this is a batch flush message
